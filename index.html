@@ -659,6 +659,14 @@ fetch("players.json", {cache:"no-store"})
       alt: Array.isArray(p.alt) ? p.alt.filter(a => typeof a === "string") : [],
       path: p.path
     }));
+    // Absicherung fuer Dateien aus aelteren Skriptversionen: Ist eine Stufe leer,
+    // werden die Stufen nach Position zugeteilt (die Datei ist nach Bekanntheit sortiert).
+    const counts = {1:0,2:0,3:0};
+    PLAYERS.forEach(p => counts[playerDiff(p)]++);
+    if(!counts[1] || !counts[2] || !counts[3]){
+      const g1 = Math.floor(PLAYERS.length * 0.25), g2 = Math.floor(PLAYERS.length * 0.60);
+      PLAYERS.forEach((p,i)=> p.d = i < g1 ? 1 : (i < g2 ? 2 : 3));
+    }
     updatePoolInfo();
   })
   .catch(()=>{}); // keine Datei vorhanden -> eingebauter Pool bleibt aktiv
