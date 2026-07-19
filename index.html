@@ -145,7 +145,7 @@
   <div class="panel start show" id="start">
     <section>
       <h2>Neues Spiel</h2>
-      <p style="font-size:14px;color:var(--chalk-dim);margin-bottom:12px">8 Runden aus dem gesamten Pool – Runde 1 ist die leichteste, Runde 8 die schwerste.</p>
+      <p style="font-size:14px;color:var(--chalk-dim);margin-bottom:12px">8 Runden: 1–3 leicht, 4–6 mittel, 7–8 schwer.</p>
       <div class="btn-row">
         <button class="primary" id="startBtn">Spiel starten</button>
       </div>
@@ -331,7 +331,7 @@ const PLAYERS = [
 ];
 
 const ROUNDS = 8, START_POT = 100, REVEAL_COST = 15, WRONG_COST = 10, MIN_POT = 10;
-const DIFF_LABELS = {1:"Leicht", 2:"Mittel", 3:"Schwer", 4:"Sehr schwer"};
+const DIFF_LABELS = {1:"Leicht", 2:"Mittel", 3:"Schwer"};
 
 let seed = 0, isChallenge = false, oppScore = null, oppName = "";
 let order = [], round = 0, total = 0, pot = 0, revealed = 0, solved = false, player = null;
@@ -356,19 +356,21 @@ function seededShuffle(arr, rng){
   return a;
 }
 function playerDiff(p){
-  return p.d || (p.tier === 1 ? 3 : 2);
+  // Stufen auf 1-3 begrenzen (aeltere Daten mit d=4 zaehlen als "Schwer")
+  return Math.min(p.d || (p.tier === 1 ? 3 : 2), 3);
 }
-// Wählt 8 Spieler mit aufsteigender Schwierigkeit: 2x leicht, 2x mittel, 2x schwer, 2x sehr schwer.
+// Wählt 8 Spieler mit aufsteigender Schwierigkeit:
+// Runde 1-3 leicht, Runde 4-6 mittel, Runde 7-8 schwer.
 // Ist eine Gruppe leer, wird auf die nächstliegende ausgewichen.
 function pickRounds(s){
   const rng = mulberry32(s);
-  const groups = {1:[],2:[],3:[],4:[]};
+  const groups = {1:[],2:[],3:[]};
   PLAYERS.forEach((p,i)=> groups[playerDiff(p)].push(i));
-  [1,2,3,4].forEach(d => groups[d] = seededShuffle(groups[d], rng));
-  const plan = [1,1,2,2,3,3,4,4];
+  [1,2,3].forEach(d => groups[d] = seededShuffle(groups[d], rng));
+  const plan = [1,1,1,2,2,2,3,3];
   const chosen = [];
   plan.forEach(d=>{
-    for(const dd of [d, d+1, d-1, d+2, d-2, d+3, d-3]){
+    for(const dd of [d, d+1, d-1, d+2, d-2]){
       if(groups[dd] && groups[dd].length){ chosen.push(groups[dd].shift()); break; }
     }
   });
@@ -598,10 +600,10 @@ $("restartBtn").addEventListener("click", ()=> showPanel("start"));
 // Erwartetes Format: [{ "d": 1-4, "name": "...", "alt": ["..."], "path": [["Verein", Spiele], ["Verein", Spiele, 1]] }, ...]
 // "d" = Schwierigkeit (1 leicht ... 4 sehr schwer), dritter Wert 1 in einer Station = Leihe. "d" und "alt" sind optional.
 function updatePoolInfo(){
-  const c = {1:0,2:0,3:0,4:0};
+  const c = {1:0,2:0,3:0};
   PLAYERS.forEach(p => c[playerDiff(p)]++);
   $("poolInfo").textContent = "Aktueller Pool: " + PLAYERS.length + " Spieler (" +
-    c[1] + " leicht, " + c[2] + " mittel, " + c[3] + " schwer, " + c[4] + " sehr schwer)";
+    c[1] + " leicht, " + c[2] + " mittel, " + c[3] + " schwer)";
 }
 $("importFile").addEventListener("change", e=>{
   const file = e.target.files[0];
