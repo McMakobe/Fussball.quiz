@@ -1,172 +1,681 @@
-#!/usr/bin/env python3
-"""
-Baut players.json für das Karriereweg-Quiz aus Wikidata (frei lizenzierte Daten).
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karriereweg – Das Fussball-Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow:wght@400;500;600&family=Chivo+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pitch-night:#0B2A1F;
+    --pitch:#14532D;
+    --chalk:#F5F3EC;
+    --chalk-dim:rgba(245,243,236,.55);
+    --score-gold:#FFC93C;
+    --card-red:#E4572E;
+    --line:rgba(245,243,236,.28);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:'Barlow',sans-serif;
+    background:
+      radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,201,60,.07), transparent 60%),
+      repeating-linear-gradient(90deg, var(--pitch-night) 0 90px, #0D2F23 90px 180px);
+    color:var(--chalk);
+    min-height:100%;
+    display:flex;justify-content:center;
+  }
+  .app{width:100%;max-width:560px;padding:20px 16px 48px}
 
-Ausführen:  python3 build_players_wikidata.py
-Benötigt:   Python 3 mit requests  (pip install requests)
-Dauer:      einige Minuten (viele kleine Abfragen, absichtlich gedrosselt)
+  header{
+    display:flex;align-items:baseline;justify-content:space-between;
+    border-bottom:2px solid var(--line);
+    padding-bottom:12px;margin-bottom:22px;
+  }
+  h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(28px,7vw,40px);letter-spacing:.04em;line-height:1}
+  h1 span{color:var(--score-gold)}
+  .board{font-family:'Chivo Mono',monospace;text-align:right;font-size:13px;color:var(--chalk-dim)}
+  .board strong{display:block;font-size:22px;color:var(--score-gold);font-weight:600;font-variant-numeric:tabular-nums}
 
-Robustheit: Die Kandidaten werden in Bekanntheits-Bändern geladen (statt in
-einer Riesenabfrage), jede Abfrage wird bei Fehlern automatisch wiederholt,
-und kaputte Antworten werden toleriert bzw. übersprungen.
-"""
+  .meta{
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:'Chivo Mono',monospace;font-size:12px;
+    color:var(--chalk-dim);margin-bottom:14px;letter-spacing:.06em;text-transform:uppercase;
+  }
+  .pot{color:var(--score-gold)}
 
-import json
-import time
-import sys
+  .path{list-style:none;position:relative;margin:6px 0 22px;padding-left:26px}
+  .path::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:0;border-left:2px dashed var(--line)}
+  .station{
+    position:relative;margin-bottom:10px;
+    background:rgba(20,83,45,.55);
+    border:1.5px solid var(--line);border-radius:6px;padding:10px 14px;
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    animation:flip .35s ease both;
+  }
+  @keyframes flip{from{transform:rotateX(70deg);opacity:0}to{transform:rotateX(0);opacity:1}}
+  @media (prefers-reduced-motion: reduce){.station{animation:none}}
+  .station::before{
+    content:"";position:absolute;left:-24px;top:50%;transform:translateY(-50%);
+    width:12px;height:12px;border-radius:50%;
+    background:var(--chalk);box-shadow:0 0 0 3px var(--pitch-night);
+  }
+  .station .club{font-weight:600;font-size:16px;flex:1}
+  .crest{
+    width:30px;height:30px;min-width:30px;border-radius:50%;
+    border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Chivo Mono',monospace;font-size:9px;letter-spacing:.02em;
+    color:var(--chalk-dim);background:rgba(245,243,236,.06);overflow:hidden;
+  }
+  .crest img{width:100%;height:100%;object-fit:contain;background:rgba(245,243,236,.85);border-radius:50%}
+  .station .apps{font-family:'Chivo Mono',monospace;font-size:13px;color:var(--score-gold);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .station.hidden-st{border-style:dashed;background:transparent;color:var(--chalk-dim)}
+  .station.hidden-st::before{background:transparent;border:2px dashed var(--line)}
+  .station.hidden-st .club{font-weight:400;letter-spacing:.2em}
+  .loan{font-size:11px;color:var(--chalk-dim);margin-left:6px;font-weight:400}
 
-try:
-    import requests
-except ImportError:
-    sys.exit("requests fehlt. Bitte zuerst installieren:  pip install requests")
+  .controls{display:flex;flex-direction:column;gap:10px}
+  input[type=text]{
+    width:100%;padding:13px 14px;font-size:16px;font-family:'Barlow',sans-serif;
+    background:rgba(245,243,236,.06);color:var(--chalk);
+    border:1.5px solid var(--line);border-radius:6px;outline:none;
+  }
+  input[type=text]:focus{border-color:var(--score-gold)}
+  input::placeholder{color:var(--chalk-dim)}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap}
+  button{
+    flex:1;min-width:120px;padding:12px 10px;
+    font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:.06em;
+    border-radius:6px;border:1.5px solid var(--line);
+    background:transparent;color:var(--chalk);cursor:pointer;
+  }
+  button:focus-visible{outline:2px solid var(--score-gold);outline-offset:2px}
+  button.primary{background:var(--score-gold);color:#1A1A0E;border-color:var(--score-gold)}
+  button.primary:active{transform:translateY(1px)}
+  button:disabled{opacity:.35;cursor:default}
+  button.mode.active{background:var(--score-gold);color:#1A1A0E;border-color:var(--score-gold)}
 
-# ---------------- Einstellungen ----------------
-MIN_SITELINKS = 12      # Mindest-Anzahl Wikipedia-Sprachversionen (Bekanntheitsfilter)
-MIN_STATIONS = 3        # mind. so viele Vereinsstationen mit Einsatzzahl
-MIN_TOTAL_APPS = 80     # mind. so viele Einsätze insgesamt
-BATCH = 40              # Spieler pro Detailabfrage
-PAUSE = 1.0             # Sekunden Pause zwischen Abfragen (fair gegenüber Wikidata)
-OUTPUT = "players.json"
+  .feedback{min-height:24px;font-size:15px;margin-top:4px;font-weight:500}
+  .feedback.bad{color:var(--card-red)}
+  .feedback.good{color:var(--score-gold)}
 
-ENDPOINT = "https://query.wikidata.org/sparql"
-HEADERS = {"User-Agent": "KarrierewegQuiz/1.0 (privates Hobby-Projekt)"}
+  .reveal{
+    margin-top:18px;padding:16px;border-radius:6px;
+    border:1.5px solid var(--score-gold);background:rgba(255,201,60,.08);display:none;
+  }
+  .reveal.show{display:block}
+  .reveal .who{font-family:'Bebas Neue',sans-serif;font-size:30px;letter-spacing:.03em;color:var(--score-gold)}
+  .reveal .pts{font-family:'Chivo Mono',monospace;font-size:14px;margin-top:4px}
 
-def sparql(query, tries=3):
-    """Abfrage mit automatischen Wiederholungsversuchen bei Netz-/Parse-Fehlern."""
-    last = None
-    for t in range(tries):
-        try:
-            r = requests.get(ENDPOINT, params={"query": query, "format": "json"},
-                             headers=HEADERS, timeout=120)
-            r.raise_for_status()
-            # strict=False toleriert unmaskierte Steuerzeichen in Namen
-            return json.loads(r.text, strict=False)["results"]["bindings"]
-        except (json.JSONDecodeError, requests.RequestException, KeyError) as e:
-            last = e
-            time.sleep(5 * (t + 1))
-    raise last
+  .panel{display:none}
+  .panel.show{display:block}
+  .start h2, .end .label{
+    font-family:'Chivo Mono',monospace;font-size:13px;text-transform:uppercase;
+    letter-spacing:.15em;color:var(--chalk-dim);margin-bottom:10px;
+  }
+  .start section{margin-bottom:26px}
+  .divider{border:none;border-top:1.5px dashed var(--line);margin:26px 0}
 
-def clean(s):
-    """Entfernt Steuerzeichen und Mehrfach-Leerzeichen aus Namen."""
-    return " ".join(str(s).split())
+  .end{text-align:center;padding:32px 10px}
+  .end .final{font-family:'Bebas Neue',sans-serif;font-size:72px;color:var(--score-gold);line-height:1}
+  .end .verdict{font-size:18px;margin:14px 0 8px}
+  .challenge-box{
+    margin:22px 0;padding:16px;border:1.5px dashed var(--score-gold);border-radius:6px;text-align:left;
+  }
+  .challenge-box .code{
+    font-family:'Chivo Mono',monospace;font-size:22px;letter-spacing:.12em;
+    color:var(--score-gold);text-align:center;margin:10px 0 14px;user-select:all;
+  }
+  .challenge-box p{font-size:14px;color:var(--chalk-dim)}
+  .vs{font-family:'Chivo Mono',monospace;font-size:13px;color:var(--score-gold);margin-top:6px}
+  .hint{font-size:13px;color:var(--chalk-dim);margin-top:14px;text-align:center}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Karriere<span>weg</span></h1>
+    <div class="board" aria-live="polite">Punkte<strong id="totalScore">0</strong></div>
+  </header>
 
-# ---------------- Schritt 1: Kandidaten in Bekanntheits-Bändern ----------------
-# Kleine Antworten pro Band -> kein Abschneiden durch den Server.
-BANDS = [200, 120, 80, 60, 50, 40, 34, 30, 26, 22, 19, 16, 14, 12, 10, 8]
-edges = [e for e in BANDS if e > MIN_SITELINKS]
-edges.append(MIN_SITELINKS)
+  <!-- Startbildschirm -->
+  <div class="panel start show" id="start">
+    <section>
+      <h2>Neues Spiel</h2>
+      <p style="font-size:14px;color:var(--chalk-dim);margin-bottom:12px">8 Runden aus dem gesamten Pool – Runde 1 ist die leichteste, Runde 8 die schwerste.</p>
+      <div class="btn-row">
+        <button class="primary" id="startBtn">Spiel starten</button>
+      </div>
+    </section>
+    <div id="adminSection" style="display:none">
+      <hr class="divider">
+      <section>
+        <h2>Admin: Spieler importieren (JSON)</h2>
+        <input type="file" id="importFile" accept=".json,application/json" aria-label="JSON-Datei mit Spielern importieren">
+        <div class="feedback" id="importFeedback" aria-live="polite"></div>
+        <p class="hint" style="text-align:left">Hinweis: Importierte Spieler gelten nur in diesem Browser (zum Testen). Damit sie für alle Besucher gelten, müssen sie in die Spielerliste der Datei im Repository übernommen werden.</p>
+      </section>
+    </div>
+    <p class="hint" id="poolInfo"></p>
+    <p class="hint">Jemanden herausfordern? Spiel durchspielen und am Ende den Challenge-Link verschicken – wer ihn öffnet, bekommt exakt dieselben Spieler in derselben Reihenfolge.</p>
+  </div>
 
-print(f"Hole Fussballer mit >= {MIN_SITELINKS} Sprachversionen (in Bändern) ...")
-candidates = []
-hi = 1000000
-for lo in edges:
-    try:
-        rows = sparql(f"""
-SELECT ?p ?links WHERE {{
-  ?p wdt:P106 wd:Q937857 ;
-     wikibase:sitelinks ?links .
-  FILTER(?links >= {lo} && ?links < {hi})
-}}
-""")
-    except Exception as e:
-        print(f"  Band {lo}-{hi} übersprungen ({e})")
-        hi = lo
-        continue
-    for r in rows:
-        qid = r["p"]["value"].rsplit("/", 1)[-1]
-        candidates.append({"qid": qid, "links": int(r["links"]["value"])})
-    print(f"  Band >= {lo}: total {len(candidates)} Kandidaten")
-    hi = lo
-    time.sleep(PAUSE)
+  <!-- Spiel -->
+  <div class="panel" id="game">
+    <div class="meta">
+      <span id="roundLabel">Runde 1 / 8</span>
+      <span class="pot">Zu holen: <span id="pot">100</span> Pkt.</span>
+    </div>
 
-# Duplikate ueber die eindeutige Wikidata-ID entfernen
-seen_qids = set()
-candidates = [c for c in candidates if not (c["qid"] in seen_qids or seen_qids.add(c["qid"]))]
+    <ul class="path" id="path"></ul>
 
-print(f"{len(candidates)} Kandidaten gefunden.")
-if not candidates:
-    sys.exit("Keine Kandidaten - MIN_SITELINKS senken.")
-candidates.sort(key=lambda c: -c["links"])
+    <div class="controls">
+      <input type="text" id="guessInput" placeholder="Welcher Spieler ist das?" autocomplete="off" aria-label="Spielername eingeben">
+      <div class="btn-row">
+        <button class="primary" id="guessBtn">Raten</button>
+        <button id="revealBtn">Station aufdecken (−15)</button>
+        <button id="giveUpBtn">Auflösen</button>
+      </div>
+      <div class="feedback" id="feedback" aria-live="polite"></div>
+    </div>
 
-# Quartilsgrenzen fuer die Schwierigkeit
-links_sorted = sorted(c["links"] for c in candidates)
-def q(p):
-    return links_sorted[min(len(links_sorted) - 1, int(p * len(links_sorted)))]
-q25, q50, q75 = q(0.25), q(0.50), q(0.75)
-def difficulty(links):
-    if links >= q75: return 1
-    if links >= q50: return 2
-    if links >= q25: return 3
-    return 4
+    <div class="reveal" id="reveal">
+      <div class="who" id="revealName"></div>
+      <div class="pts" id="revealPts"></div>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="primary" id="nextBtn">Nächste Runde</button>
+      </div>
+    </div>
 
-# ---------------- Schritt 2: Namen + Karrieren in kleinen Batches ----------------
-result = []
-seen_players = set()
-for i in range(0, len(candidates), BATCH):
-    batch = candidates[i:i + BATCH]
-    values = " ".join("wd:" + c["qid"] for c in batch)
-    try:
-        rows = sparql(f"""
-SELECT ?p ?pLabel ?teamLabel ?apps ?start ?logo WHERE {{
-  VALUES ?p {{ {values} }}
-  ?p p:P54 ?stmt .
-  ?stmt ps:P54 ?team ;
-        pq:P1350 ?apps .              # Anzahl Einsätze (Pflicht)
-  OPTIONAL {{ ?stmt pq:P580 ?start }}  # Startdatum fuer die Reihenfolge
-  OPTIONAL {{ ?team wdt:P154 ?logo }}  # frei lizenziertes Vereinslogo (falls vorhanden)
-  FILTER NOT EXISTS {{ ?team wdt:P31/wdt:P279* wd:Q6979593 }}  # keine Nationalteams
-  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "de,en". }}
-}}
-""")
-    except Exception as e:
-        print(f"  Batch {i//BATCH + 1} übersprungen ({e})")
-        time.sleep(PAUSE * 3)
-        continue
+    <p class="hint">Jede aufgedeckte Station kostet 15 Punkte, jeder Fehlversuch 10. Nachname reicht.</p>
+  </div>
 
-    names, per_player = {}, {}
-    for r in rows:
-        qid = r["p"]["value"].rsplit("/", 1)[-1]
-        names[qid] = clean(r.get("pLabel", {}).get("value", ""))
-        team = clean(r["teamLabel"]["value"])
-        try:
-            apps = int(float(r["apps"]["value"]))
-        except (ValueError, KeyError):
-            continue
-        start = r.get("start", {}).get("value", "9999")
-        logo = r.get("logo", {}).get("value", "")
-        if logo:
-            logo = logo.replace("http://", "https://") + "?width=64"
-        per_player.setdefault(qid, []).append((start, team, apps, logo))
+  <!-- Endbildschirm -->
+  <div class="panel end" id="end">
+    <div class="label">Endstand</div>
+    <div class="final" id="finalScore">0</div>
+    <div class="verdict" id="verdict"></div>
+    <div class="vs" id="vsNote"></div>
 
-    for c in batch:
-        stations = sorted(per_player.get(c["qid"], []))
-        path = [([team, apps, 0, logo] if logo else [team, apps])
-                for _, team, apps, logo in stations if apps > 0]
-        total = sum(s[1] for s in path)
-        name = names.get(c["qid"], "")
-        if len(path) < MIN_STATIONS or total < MIN_TOTAL_APPS or not name:
-            continue
-        if name.startswith("Q") and name[1:].isdigit():
-            continue  # Eintrag ohne echten Namen
-        key = (name.lower(), path[0][0], total)
-        if key in seen_players:
-            continue  # gleicher Name, gleicher Startverein, gleiche Einsatzsumme -> Duplikat
-        seen_players.add(key)
-        result.append({"d": difficulty(c["links"]), "name": name,
-                       "alt": [], "path": path})
+    <div class="challenge-box">
+      <p>Fordere deine Freunde heraus – wer diesen Link öffnet, spielt exakt dieselben Runden und sieht danach den direkten Vergleich mit dir:</p>
+      <input type="text" id="nameInput" placeholder="Dein Name (optional, erscheint beim Gegner)" maxlength="20" autocomplete="off" aria-label="Dein Name für den Vergleich" style="margin-top:6px">
+      <div class="code" id="challengeLink" style="font-size:14px;letter-spacing:0;word-break:break-all">…</div>
+      <div class="btn-row">
+        <button class="primary" id="copyBtn">Challenge-Link kopieren</button>
+      </div>
+      <div class="feedback" id="copyFeedback" aria-live="polite"></div>
+    </div>
 
-    done = min(i + BATCH, len(candidates))
-    print(f"  {done}/{len(candidates)} geprueft, {len(result)} Spieler im Pool")
-    time.sleep(PAUSE)
+    <div class="btn-row">
+      <button id="restartBtn">Zurück zum Start</button>
+    </div>
+  </div>
+</div>
 
-if not result:
-    sys.exit("Keine Spieler uebrig - Filter lockern (MIN_SITELINKS/MIN_STATIONS senken).")
+<script>
+// ---------- Spielerdaten ----------
+// tier 0 = Topstar, tier 1 = Zweite Reihe
+// path: [Verein, ca. Ligaspiele, istLeihe]
+const PLAYERS = [
+  {"tier":0,"name":"Lukas Podolski","alt":["podolski","poldi"],"path":[["1. FC Köln",81],["Bayern München",71],["1. FC Köln",88],["FC Arsenal",60],["Inter Mailand",17,1],["Galatasaray",63],["Vissel Kobe",55],["Górnik Zabrze",90]],"d":1},
+  {"tier":0,"name":"Zlatan Ibrahimović","alt":["ibrahimovic","zlatan"],"path":[["Malmö FF",40],["Ajax Amsterdam",74],["Juventus Turin",70],["Inter Mailand",88],["FC Barcelona",29],["AC Mailand",61],["Paris Saint-Germain",122],["Manchester United",33],["LA Galaxy",56],["AC Mailand",78]],"d":1},
+  {"tier":0,"name":"Cristiano Ronaldo","alt":["ronaldo","cr7","cristiano"],"path":[["Sporting Lissabon",25],["Manchester United",196],["Real Madrid",292],["Juventus Turin",98],["Manchester United",40],["Al-Nassr",75]],"d":1},
+  {"tier":0,"name":"Miroslav Klose","alt":["klose"],"path":[["1. FC Kaiserslautern",120],["Werder Bremen",89],["Bayern München",98],["Lazio Rom",139]],"d":1},
+  {"tier":0,"name":"Andrés Iniesta","alt":["iniesta"],"path":[["FC Barcelona",442],["Vissel Kobe",114],["Emirates Club",13]],"d":2},
+  {"tier":0,"name":"Bastian Schweinsteiger","alt":["schweinsteiger","schweini"],"path":[["Bayern München",342],["Manchester United",18],["Chicago Fire",85]],"d":1},
+  {"tier":0,"name":"Thierry Henry","alt":["henry"],"path":[["AS Monaco",105],["Juventus Turin",16],["FC Arsenal",254],["FC Barcelona",80],["New York Red Bulls",122],["FC Arsenal",4,1]],"d":2},
+  {"tier":0,"name":"Andrea Pirlo","alt":["pirlo"],"path":[["Brescia Calcio",47],["Inter Mailand",22],["Reggina Calcio",28,1],["AC Mailand",284],["Juventus Turin",119],["New York City FC",60]],"d":2},
+  {"tier":0,"name":"Xabi Alonso","alt":["alonso","xabi"],"path":[["Real Sociedad",114],["SD Eibar",14,1],["FC Liverpool",143],["Real Madrid",158],["Bayern München",79]],"d":2},
+  {"tier":0,"name":"Didier Drogba","alt":["drogba"],"path":[["Le Mans",64],["EA Guingamp",45],["Olympique Marseille",35],["FC Chelsea",254],["Shanghai Shenhua",11],["Galatasaray",37],["FC Chelsea",28],["Montreal Impact",33]],"d":2},
+  {"tier":0,"name":"Kevin De Bruyne","alt":["de bruyne","debruyne","kdb"],"path":[["KRC Genk",97],["FC Chelsea",3],["Werder Bremen",33,1],["VfL Wolfsburg",51],["Manchester City",250],["SSC Neapel",20]],"d":2},
+  {"tier":0,"name":"Luka Modrić","alt":["modric"],"path":[["Dinamo Zagreb",94],["Zrinjski Mostar",25,1],["Inter Zaprešić",18,1],["Tottenham Hotspur",127],["Real Madrid",350],["AC Mailand",15]],"d":2},
+  {"tier":0,"name":"Robert Lewandowski","alt":["lewandowski","lewa"],"path":[["Znicz Pruszków",32],["Lech Posen",58],["Borussia Dortmund",131],["Bayern München",253],["FC Barcelona",100]],"d":1},
+  {"tier":0,"name":"Manuel Neuer","alt":["neuer"],"path":[["FC Schalke 04",156],["Bayern München",350]],"d":1},
+  {"tier":0,"name":"Arjen Robben","alt":["robben"],"path":[["FC Groningen",46],["PSV Eindhoven",56],["FC Chelsea",67],["Real Madrid",50],["Bayern München",201],["FC Groningen",6]],"d":2},
+  {"tier":0,"name":"Lionel Messi","alt":["messi","leo messi"],"path":[["FC Barcelona",520],["Paris Saint-Germain",58],["Inter Miami",50]],"d":1},
+  {"tier":0,"name":"Neymar","alt":["neymar jr"],"path":[["FC Santos",103],["FC Barcelona",123],["Paris Saint-Germain",112],["Al-Hilal",7],["FC Santos",14]],"d":1},
+  {"tier":0,"name":"Kylian Mbappé","alt":["mbappe"],"path":[["AS Monaco",58],["Paris Saint-Germain",203],["Real Madrid",40]],"d":1},
+  {"tier":0,"name":"Mohamed Salah","alt":["salah","mo salah"],"path":[["El Mokawloon",38],["FC Basel",47],["FC Chelsea",13],["AC Florenz",16,1],["AS Rom",65],["FC Liverpool",250]],"d":1},
+  {"tier":0,"name":"Sadio Mané","alt":["mane"],"path":[["FC Metz",22],["RB Salzburg",63],["FC Southampton",67],["FC Liverpool",196],["Bayern München",25],["Al-Nassr",60]],"d":2},
+  {"tier":0,"name":"Luis Suárez","alt":["suarez"],"path":[["Nacional Montevideo",27],["FC Groningen",29],["Ajax Amsterdam",110],["FC Liverpool",110],["FC Barcelona",191],["Atlético Madrid",83],["Nacional Montevideo",14],["Grêmio",54],["Inter Miami",40]],"d":2},
+  {"tier":0,"name":"Karim Benzema","alt":["benzema"],"path":[["Olympique Lyon",112],["Real Madrid",439],["Al-Ittihad",50]],"d":2},
+  {"tier":0,"name":"Gareth Bale","alt":["bale"],"path":[["FC Southampton",40],["Tottenham Hotspur",146],["Real Madrid",176],["Tottenham Hotspur",20,1],["Los Angeles FC",12]],"d":2},
+  {"tier":0,"name":"Toni Kroos","alt":["kroos"],"path":[["Bayern München",130],["Bayer Leverkusen",33,1],["Real Madrid",306]],"d":1},
+  {"tier":0,"name":"Mesut Özil","alt":["ozil","oezil"],"path":[["FC Schalke 04",30],["Werder Bremen",71],["Real Madrid",105],["FC Arsenal",184],["Fenerbahçe",37],["İstanbul Başakşehir",8]],"d":1},
+  {"tier":0,"name":"Thomas Müller","alt":["muller","mueller"],"path":[["Bayern München",473],["Vancouver Whitecaps",10]],"d":1},
+  {"tier":0,"name":"Mario Götze","alt":["gotze","goetze"],"path":[["Borussia Dortmund",116],["Bayern München",73],["Borussia Dortmund",61],["PSV Eindhoven",32],["Eintracht Frankfurt",90]],"d":1},
+  {"tier":0,"name":"Marco Reus","alt":["reus"],"path":[["Rot Weiss Ahlen",27],["Borussia Mönchengladbach",97],["Borussia Dortmund",302],["LA Galaxy",30]],"d":1},
+  {"tier":0,"name":"Philipp Lahm","alt":["lahm"],"path":[["VfB Stuttgart",53,1],["Bayern München",332]],"d":1},
+  {"tier":0,"name":"Oliver Kahn","alt":["kahn"],"path":[["Karlsruher SC",128],["Bayern München",429]],"d":1},
+  {"tier":0,"name":"David Beckham","alt":["beckham"],"path":[["Manchester United",265],["Preston North End",5,1],["Real Madrid",116],["LA Galaxy",98],["AC Mailand",29,1],["Paris Saint-Germain",10]],"d":1},
+  {"tier":0,"name":"Wayne Rooney","alt":["rooney"],"path":[["FC Everton",67],["Manchester United",393],["FC Everton",31],["D.C. United",48],["Derby County",35]],"d":1},
+  {"tier":0,"name":"Steven Gerrard","alt":["gerrard"],"path":[["FC Liverpool",504],["LA Galaxy",34]],"d":1},
+  {"tier":0,"name":"Frank Lampard","alt":["lampard"],"path":[["West Ham United",148],["Swansea City",9,1],["FC Chelsea",429],["Manchester City",32],["New York City FC",29]],"d":2},
+  {"tier":0,"name":"Ronaldinho","alt":["ronaldinho gaucho"],"path":[["Grêmio",52],["Paris Saint-Germain",55],["FC Barcelona",145],["AC Mailand",76],["Flamengo",33],["Atlético Mineiro",48],["Querétaro",25],["Fluminense",7]],"d":1},
+  {"tier":0,"name":"Kaká","alt":["kaka"],"path":[["FC São Paulo",59],["AC Mailand",193],["Real Madrid",85],["AC Mailand",30],["Orlando City",75]],"d":2},
+  {"tier":0,"name":"Ronaldo","alt":["ronaldo nazario","r9","der echte ronaldo"],"path":[["Cruzeiro",14],["PSV Eindhoven",46],["FC Barcelona",37],["Inter Mailand",68],["Real Madrid",127],["AC Mailand",20],["Corinthians",31]],"d":1},
+  {"tier":0,"name":"Wesley Sneijder","alt":["sneijder"],"path":[["Ajax Amsterdam",127],["Real Madrid",52],["Inter Mailand",76],["Galatasaray",145],["OGC Nizza",8],["Al-Gharafa",16]],"d":2},
+  {"tier":0,"name":"Eden Hazard","alt":["hazard"],"path":[["OSC Lille",147],["FC Chelsea",245],["Real Madrid",54]],"d":2},
+  {"tier":0,"name":"Sergio Ramos","alt":["ramos"],"path":[["FC Sevilla",39],["Real Madrid",469],["Paris Saint-Germain",45],["FC Sevilla",28],["CF Monterrey",20]],"d":2},
+  {"tier":0,"name":"Gianluigi Buffon","alt":["buffon","gigi buffon"],"path":[["AC Parma",168],["Juventus Turin",509],["Paris Saint-Germain",17],["Juventus Turin",9],["AC Parma",30]],"d":2},
+  {"tier":0,"name":"Erling Haaland","alt":["haaland"],"path":[["Bryne FK",16],["Molde FK",39],["RB Salzburg",27],["Borussia Dortmund",67],["Manchester City",100]],"d":1},
+  {"tier":0,"name":"Harry Kane","alt":["kane"],"path":[["Leyton Orient",18,1],["FC Millwall",22,1],["Norwich City",3,1],["Leicester City",13,1],["Tottenham Hotspur",320],["Bayern München",65]],"d":1},
+  {"tier":0,"name":"Antoine Griezmann","alt":["griezmann"],"path":[["Real Sociedad",180],["Atlético Madrid",257],["FC Barcelona",74],["Atlético Madrid",100]],"d":2},
+  {"tier":0,"name":"Ángel Di María","alt":["di maria","dimaria"],"path":[["Rosario Central",35],["Benfica Lissabon",76],["Real Madrid",124],["Manchester United",27],["Paris Saint-Germain",183],["Juventus Turin",26],["Benfica Lissabon",55],["Rosario Central",20]],"d":2},
+  {"tier":0,"name":"Edinson Cavani","alt":["cavani"],"path":[["Danubio FC",25],["US Palermo",109],["SSC Neapel",104],["Paris Saint-Germain",200],["Manchester United",41],["FC Valencia",23],["Boca Juniors",50]],"d":2},
+  {"tier":0,"name":"Petr Čech","alt":["cech"],"path":[["Chmel Blšany",27],["Sparta Prag",27],["Stade Rennes",70],["FC Chelsea",333],["FC Arsenal",110]],"d":2},
+  {"tier":0,"name":"N'Golo Kanté","alt":["kante","ngolo kante"],"path":[["US Boulogne",38],["SM Caen",75],["Leicester City",37],["FC Chelsea",185],["Al-Ittihad",60]],"d":2},
+  {"tier":0,"name":"Riyad Mahrez","alt":["mahrez"],"path":[["Le Havre",60],["Leicester City",179],["Manchester City",145],["Al-Ahli",60]],"d":2},
+  {"tier":0,"name":"Mats Hummels","alt":["hummels"],"path":[["Bayern München",1],["Borussia Dortmund",216],["Bayern München",70],["Borussia Dortmund",150],["AS Rom",20]],"d":2},
+  {"tier":0,"name":"İlkay Gündoğan","alt":["gundogan","guendogan"],"path":[["1. FC Nürnberg",48],["Borussia Dortmund",105],["Manchester City",230],["FC Barcelona",36],["Manchester City",30]],"d":2},
+  {"tier":0,"name":"Virgil van Dijk","alt":["van dijk","vandijk"],"path":[["FC Groningen",62],["Celtic Glasgow",76],["FC Southampton",67],["FC Liverpool",230]],"d":2},
+  {"tier":0,"name":"Son Heung-min","alt":["son","heung-min son"],"path":[["Hamburger SV",73],["Bayer Leverkusen",62],["Tottenham Hotspur",330],["Los Angeles FC",10]],"d":2},
+  {"tier":0,"name":"Diego Forlán","alt":["forlan"],"path":[["Independiente",80],["Manchester United",63],["FC Villarreal",106],["Atlético Madrid",96],["Inter Mailand",18],["SC Internacional",28],["Cerezo Osaka",35],["Peñarol",30]],"d":2},
+  {"tier":0,"name":"Carlos Tévez","alt":["tevez"],"path":[["Boca Juniors",75],["Corinthians",38],["West Ham United",26],["Manchester United",63],["Manchester City",91],["Juventus Turin",66],["Boca Juniors",30],["Shanghai Shenhua",16],["Boca Juniors",40]],"d":2},
+  {"tier":0,"name":"Radamel Falcao","alt":["falcao"],"path":[["River Plate",90],["FC Porto",51],["Atlético Madrid",68],["AS Monaco",108],["Manchester United",26,1],["FC Chelsea",10,1],["Galatasaray",43],["Rayo Vallecano",60],["Millonarios",20]],"d":2},
+  {"tier":0,"name":"Jamie Vardy","alt":["vardy"],"path":[["Stocksbridge Park Steels",66],["FC Halifax Town",37],["Fleetwood Town",36],["Leicester City",342],["US Cremonese",10]],"d":2},
+  {"tier":0,"name":"Jérôme Boateng","alt":["boateng","jerome boateng"],"path":[["Hertha BSC",10],["Hamburger SV",66],["Manchester City",16],["Bayern München",229],["Olympique Lyon",25],["US Salernitana",12],["LASK",13]],"d":2},
+  {"tier":0,"name":"Granit Xhaka","alt":["xhaka"],"path":[["FC Basel",68],["Borussia Mönchengladbach",108],["FC Arsenal",225],["Bayer Leverkusen",68],["AFC Sunderland",30]],"d":2},
+  {"tier":0,"name":"Xherdan Shaqiri","alt":["shaqiri"],"path":[["FC Basel",90],["Bayern München",52],["Inter Mailand",15],["Stoke City",84],["FC Liverpool",44],["Olympique Lyon",30],["Chicago Fire",50],["FC Basel",30]],"d":2},
+  {"tier":1,"name":"Sandro Wagner","alt":["wagner"],"path":[["Bayern München",2],["MSV Duisburg",23],["Werder Bremen",35],["1. FC Kaiserslautern",46],["Hertha BSC",48],["Darmstadt 98",43],["1899 Hoffenheim",48],["Bayern München",32],["Tianjin Teda",23]],"d":3},
+  {"tier":1,"name":"Nuri Şahin","alt":["sahin"],"path":[["Borussia Dortmund",144],["Feyenoord Rotterdam",29,1],["Real Madrid",10],["FC Liverpool",7,1],["Borussia Dortmund",90],["Werder Bremen",54],["Antalyaspor",28]],"d":3},
+  {"tier":1,"name":"Kevin Großkreutz","alt":["grosskreutz","großkreutz"],"path":[["Rot Weiss Ahlen",79],["Borussia Dortmund",152],["Galatasaray",0],["VfB Stuttgart",28],["Darmstadt 98",10],["KFC Uerdingen",54]],"d":3},
+  {"tier":1,"name":"Marko Arnautović","alt":["arnautovic"],"path":[["FC Twente",43],["Inter Mailand",3,1],["Werder Bremen",81],["Stoke City",125],["West Ham United",59],["Shanghai Port",39],["FC Bologna",86],["Inter Mailand",31],["Roter Stern Belgrad",25]],"d":3},
+  {"tier":1,"name":"Valon Behrami","alt":["behrami"],"path":[["Hellas Verona",16],["Lazio Rom",79],["West Ham United",61],["AC Florenz",44],["SSC Neapel",60],["Hamburger SV",44],["FC Watford",32],["Udinese Calcio",58],["FC Sion",30],["CFC Genua",28]],"d":4},
+  {"tier":1,"name":"Tranquillo Barnetta","alt":["barnetta"],"path":[["FC St. Gallen",20],["Hannover 96",25,1],["Bayer Leverkusen",223],["FC Schalke 04",37],["Eintracht Frankfurt",44],["Philadelphia Union",49],["FC St. Gallen",44]],"d":4},
+  {"tier":1,"name":"Haris Seferović","alt":["seferovic"],"path":[["Grasshopper Club Zürich",10],["Novara Calcio",21,1],["Real Sociedad",31],["Eintracht Frankfurt",62],["Benfica Lissabon",127],["Galatasaray",12,1]],"d":4},
+  {"tier":1,"name":"Yann Sommer","alt":["sommer"],"path":[["FC Basel",110],["Grasshopper Club Zürich",34,1],["Borussia Mönchengladbach",259],["Bayern München",25],["Inter Mailand",70]],"d":3},
+  {"tier":1,"name":"Vedad Ibišević","alt":["ibisevic"],"path":[["Paris Saint-Germain",6],["FCO Dijon",33,1],["Alemannia Aachen",27],["1899 Hoffenheim",79],["VfB Stuttgart",95],["Hertha BSC",149],["FC Schalke 04",4]],"d":4},
+  {"tier":1,"name":"Roman Weidenfeller","alt":["weidenfeller"],"path":[["1. FC Kaiserslautern",5],["Borussia Dortmund",349]],"d":3},
+  {"tier":1,"name":"Ivan Rakitić","alt":["rakitic"],"path":[["FC Basel",33],["FC Schalke 04",97],["FC Sevilla",149],["FC Barcelona",200],["FC Sevilla",100],["Hajduk Split",30]],"d":3},
+  {"tier":1,"name":"Salomon Kalou","alt":["kalou"],"path":[["Feyenoord Rotterdam",68],["FC Chelsea",147],["OSC Lille",76],["Hertha BSC",149],["Botafogo",29]],"d":4},
+  {"tier":1,"name":"Breel Embolo","alt":["embolo"],"path":[["FC Basel",61],["FC Schalke 04",49],["Borussia Mönchengladbach",86],["AS Monaco",85],["Stade Rennes",15]],"d":3},
+  {"tier":1,"name":"Kevin Kurányi","alt":["kuranyi"],"path":[["VfB Stuttgart",150],["FC Schalke 04",167],["Dynamo Moskau",124],["1899 Hoffenheim",25]],"d":3},
+  {"tier":1,"name":"Claudio Pizarro","alt":["pizarro"],"path":[["Alianza Lima",43],["Werder Bremen",145],["Bayern München",174],["FC Chelsea",21],["Werder Bremen",89],["Bayern München",30],["1. FC Köln",26],["Werder Bremen",42]],"d":3},
+  {"tier":1,"name":"Naldo","alt":["naldo"],"path":[["Werder Bremen",218],["VfL Wolfsburg",127],["FC Schalke 04",107],["AS Monaco",10]],"d":4},
+  {"tier":1,"name":"Diego","alt":["diego ribas"],"path":[["FC Santos",72],["FC Porto",43],["Werder Bremen",84],["Juventus Turin",33],["VfL Wolfsburg",61],["Atlético Madrid",28,1],["Fenerbahçe",69],["Flamengo",130]],"d":4},
+  {"tier":1,"name":"Rafael van der Vaart","alt":["van der vaart","vandervaart"],"path":[["Ajax Amsterdam",117],["Hamburger SV",74],["Real Madrid",58],["Tottenham Hotspur",61],["Hamburger SV",77],["Real Betis",25],["FC Midtjylland",17],["Esbjerg fB",24]],"d":3},
+  {"tier":1,"name":"Nigel de Jong","alt":["de jong","dejong"],"path":[["Ajax Amsterdam",74],["Hamburger SV",60],["Manchester City",103],["AC Mailand",91],["LA Galaxy",28],["Galatasaray",18],["1. FSV Mainz 05",8],["Al-Ahli",20]],"d":4},
+  {"tier":1,"name":"Vincent Kompany","alt":["kompany"],"path":[["RSC Anderlecht",73],["Hamburger SV",29],["Manchester City",265],["RSC Anderlecht",32]],"d":3},
+  {"tier":1,"name":"Zé Roberto","alt":["ze roberto"],"path":[["Portuguesa",25],["Real Madrid",14],["Flamengo",26],["Bayer Leverkusen",78],["Bayern München",85],["FC Santos",33],["Bayern München",50],["Hamburger SV",33],["Grêmio",44],["Palmeiras",120]],"d":4},
+  {"tier":1,"name":"Grafite","alt":["grafite"],"path":[["FC São Paulo",36],["Le Mans",16],["VfL Wolfsburg",92],["Al-Ahli Dubai",60]],"d":4},
+  {"tier":1,"name":"Ivica Olić","alt":["olic"],"path":[["Dinamo Zagreb",60],["ZSKA Moskau",85],["Hamburger SV",98],["Bayern München",72],["VfL Wolfsburg",60],["Hamburger SV",32],["1860 München",24]],"d":3},
+  {"tier":1,"name":"Mladen Petrić","alt":["petric"],"path":[["Grasshopper Club Zürich",76],["FC Basel",103],["Borussia Dortmund",63],["Hamburger SV",85],["FC Fulham",21],["West Ham United",2],["Panathinaikos",18]],"d":4},
+  {"tier":1,"name":"Marco Streller","alt":["streller"],"path":[["FC Basel",65],["VfB Stuttgart",49],["1. FC Köln",15,1],["FC Basel",200]],"d":3},
+  {"tier":1,"name":"Alexander Frei","alt":["frei"],"path":[["FC Luzern",36],["Servette Genf",56],["Stade Rennes",90],["Borussia Dortmund",56],["FC Basel",110]],"d":3},
+  {"tier":1,"name":"Blerim Džemaili","alt":["dzemaili"],"path":[["FC Zürich",90],["Bolton Wanderers",2],["FC Turin",48],["AC Parma",30],["SSC Neapel",69],["CFC Genua",32],["FC Bologna",76],["Montreal Impact",28],["Shenzhen FC",16],["FC Zürich",60]],"d":4},
+  {"tier":1,"name":"Gökhan Inler","alt":["inler"],"path":[["FC Aarau",32],["FC Zürich",63],["Udinese Calcio",117],["SSC Neapel",154],["Leicester City",5],["Beşiktaş",25],["İstanbul Başakşehir",60],["Adana Demirspor",70]],"d":4},
+  {"tier":1,"name":"Admir Mehmedi","alt":["mehmedi"],"path":[["FC Zürich",110],["Dynamo Kiew",16],["SC Freiburg",55],["Bayer Leverkusen",65],["VfL Wolfsburg",85],["Antalyaspor",30]],"d":4},
+  {"tier":1,"name":"Ricardo Rodríguez","alt":["rodriguez","ricardo rodriguez"],"path":[["FC Zürich",39],["VfL Wolfsburg",149],["AC Mailand",76],["PSV Eindhoven",12,1],["FC Turin",130],["Real Betis",30]],"d":3},
+  {"tier":1,"name":"Stefan Kießling","alt":["kiessling","kießling"],"path":[["1. FC Nürnberg",60],["Bayer Leverkusen",344]],"d":3},
+  {"tier":1,"name":"Lukáš Hrádecký","alt":["hradecky"],"path":[["Esbjerg fB",77],["Bröndby IF",81],["Eintracht Frankfurt",98],["Bayer Leverkusen",220],["AS Monaco",20]],"d":3},
+  {"tier":1,"name":"Max Kruse","alt":["kruse"],"path":[["Werder Bremen",2],["FC St. Pauli",69],["SC Freiburg",63],["Borussia Mönchengladbach",65],["VfL Wolfsburg",34],["Werder Bremen",88],["Fenerbahçe",23],["Union Berlin",55],["VfL Wolfsburg",35],["SC Paderborn",20]],"d":3},
+  {"tier":1,"name":"André Schürrle","alt":["schurrle","schuerrle"],"path":[["1. FSV Mainz 05",66],["Bayer Leverkusen",65],["FC Chelsea",44],["VfL Wolfsburg",49],["Borussia Dortmund",32],["FC Fulham",24,1],["Spartak Moskau",12,1]],"d":3},
+  {"tier":1,"name":"Kevin Volland","alt":["volland"],"path":[["1860 München",32],["1899 Hoffenheim",120],["Bayer Leverkusen",127],["AS Monaco",63],["Union Berlin",48]],"d":3},
+  {"tier":1,"name":"Shinji Kagawa","alt":["kagawa"],"path":[["Cerezo Osaka",55],["Borussia Dortmund",49],["Manchester United",38],["Borussia Dortmund",95],["Beşiktaş",14,1],["Real Saragossa",31],["PAOK Saloniki",10],["Sint-Truiden",7],["Cerezo Osaka",60]],"d":3},
+  {"tier":1,"name":"Robert Huth","alt":["huth"],"path":[["FC Chelsea",39],["FC Middlesbrough",33],["Stoke City",207],["Leicester City",98]],"d":4},
+  {"tier":1,"name":"Per Mertesacker","alt":["mertesacker"],"path":[["Hannover 96",78],["Werder Bremen",110],["FC Arsenal",156]],"d":3},
+  {"tier":1,"name":"Tim Wiese","alt":["wiese"],"path":[["1. FC Kaiserslautern",37],["Werder Bremen",232],["1899 Hoffenheim",10]],"d":3},
+  {"tier":1,"name":"Obafemi Martins","alt":["martins"],"path":[["Inter Mailand",88],["Newcastle United",88],["VfL Wolfsburg",22],["Rubin Kazan",24],["Birmingham City",23,1],["UD Levante",27],["Seattle Sounders",72],["Shanghai Shenhua",57]],"d":4},
+  {"tier":1,"name":"Demba Ba","alt":["ba","demba ba"],"path":[["FC Rouen",26],["Excelsior Mouscron",17],["1899 Hoffenheim",71],["West Ham United",12],["Newcastle United",54],["FC Chelsea",33],["Beşiktaş",27],["Shanghai Shenhua",39],["Göztepe",15],["İstanbul Başakşehir",25],["FC Lugano",10]],"d":4},
+  {"tier":1,"name":"John Obi Mikel","alt":["mikel","obi mikel"],"path":[["Lyn Oslo",24],["FC Chelsea",249],["Tianjin Teda",36],["FC Middlesbrough",18],["Trabzonspor",21],["Stoke City",37],["Kuwait SC",10]],"d":4},
+  {"tier":1,"name":"Asamoah Gyan","alt":["gyan"],"path":[["Liberty Professionals",16],["Udinese Calcio",39],["Modena FC",53,1],["Stade Rennes",48],["AFC Sunderland",34],["Al-Ain",83],["Shanghai SIPG",32],["Kayserispor",30]],"d":4},
+  {"tier":1,"name":"Nani","alt":["nani"],"path":[["Sporting Lissabon",58],["Manchester United",147],["Fenerbahçe",29],["FC Valencia",30],["Lazio Rom",12],["Sporting Lissabon",44],["Orlando City",75],["FC Venedig",10],["Melbourne Victory",21]],"d":4},
+  {"tier":1,"name":"Hulk","alt":["hulk"],"path":[["Consadole Sapporo",38],["Tokyo Verdy",42],["FC Porto",99],["Zenit St. Petersburg",148],["Shanghai SIPG",118],["Atlético Mineiro",150]],"d":4},
+  {"tier":1,"name":"Roque Santa Cruz","alt":["santa cruz","santacruz"],"path":[["Olimpia Asunción",60],["Bayern München",155],["Blackburn Rovers",57],["Manchester City",20],["Real Betis",25,1],["FC Málaga",66],["Cruz Azul",26],["Olimpia Asunción",140]],"d":4},
+  {"tier":1,"name":"Vágner Love","alt":["vagner love","love"],"path":[["Palmeiras",33],["ZSKA Moskau",144],["Flamengo",55],["Corinthians",36],["AS Monaco",16],["Alanyaspor",58],["Beşiktaş",22]],"d":4}
+];
 
-with open(OUTPUT, "w", encoding="utf-8") as f:
-    json.dump(result, f, ensure_ascii=False, separators=(",", ":"))
+const ROUNDS = 8, START_POT = 100, REVEAL_COST = 15, WRONG_COST = 10, MIN_POT = 10;
+const DIFF_LABELS = {1:"Leicht", 2:"Mittel", 3:"Schwer", 4:"Sehr schwer"};
 
-from collections import Counter
-dist = Counter(p["d"] for p in result)
-print(f"\nFertig: {len(result)} Spieler -> {OUTPUT}")
-print(f"Schwierigkeit: {dist[1]} leicht, {dist[2]} mittel, {dist[3]} schwer, {dist[4]} sehr schwer")
-print("players.json jetzt neben die index.html ins Repository hochladen.")
+let seed = 0, isChallenge = false, oppScore = null, oppName = "";
+let order = [], round = 0, total = 0, pot = 0, revealed = 0, solved = false, player = null;
+
+const $ = id => document.getElementById(id);
+
+// ---------- Deterministischer Zufall (für Challenges) ----------
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+function seededShuffle(arr, rng){
+  const a = [...arr];
+  for(let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function playerDiff(p){
+  return p.d || (p.tier === 1 ? 3 : 2);
+}
+// Wählt 8 Spieler mit aufsteigender Schwierigkeit: 2x leicht, 2x mittel, 2x schwer, 2x sehr schwer.
+// Ist eine Gruppe leer, wird auf die nächstliegende ausgewichen.
+function pickRounds(s){
+  const rng = mulberry32(s);
+  const groups = {1:[],2:[],3:[],4:[]};
+  PLAYERS.forEach((p,i)=> groups[playerDiff(p)].push(i));
+  [1,2,3,4].forEach(d => groups[d] = seededShuffle(groups[d], rng));
+  const plan = [1,1,2,2,3,3,4,4];
+  const chosen = [];
+  plan.forEach(d=>{
+    for(const dd of [d, d+1, d-1, d+2, d-2, d+3, d-3]){
+      if(groups[dd] && groups[dd].length){ chosen.push(groups[dd].shift()); break; }
+    }
+  });
+  return chosen;
+}
+function makeCode(s){
+  return "KW-" + s.toString(36).toUpperCase().padStart(5,"0");
+}
+function challengeUrl(){
+  const base = location.href.split(/[?#]/)[0];
+  const name = ($("nameInput") ? $("nameInput").value.trim() : "").slice(0,20);
+  return base + "?c=" + makeCode(seed) + "&s=" + total + (name ? "&n=" + encodeURIComponent(name) : "");
+}
+function parseCode(str){
+  let clean = str.toUpperCase().replace(/\s+/g,"").replace(/^KW-?/,"");
+  // Alte Codes hatten einen Modus-Buchstaben vorangestellt – den ignorieren wir
+  if(/^[TZG][0-9A-Z]{5,}$/.test(clean)) clean = clean.slice(1);
+  const s = parseInt(clean, 36);
+  if(isNaN(s)) return null;
+  return s;
+}
+
+// ---------- Namensabgleich ----------
+function normalize(s){
+  return s.toLowerCase()
+    .replace(/ß/g,"ss")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+}
+// Levenshtein-Distanz, gedeckelt bei 2 (reicht für Tippfehler-Toleranz von 1)
+function lev(a, b){
+  if(Math.abs(a.length - b.length) > 1) return 2;
+  let prev = Array.from({length: b.length + 1}, (_, i) => i);
+  for(let i = 1; i <= a.length; i++){
+    const cur = [i];
+    for(let j = 1; j <= b.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    }
+    prev = cur;
+    if(Math.min(...cur) > 1) return 2;
+  }
+  return prev[b.length];
+}
+function isCorrect(input){
+  const n = normalize(input);
+  if(!n) return false;
+  const full = normalize(player.name);
+  const tokens = full.split(" ");
+  // Gültige Antworten: voller Name, alle Nachnamen-Suffixe ("santa cruz", "cruz") und Alternativen
+  const cands = new Set([full]);
+  for(let i = 1; i < tokens.length; i++) cands.add(tokens.slice(i).join(" "));
+  player.alt.forEach(a => cands.add(normalize(a)));
+  // Führende Initiale tolerieren ("r santa cruz" -> "santa cruz")
+  const nNoInit = n.replace(/^[a-z] /, "");
+  for(const c of cands){
+    if(c === n || c === nNoInit) return true;
+    if(c.length >= 5 && lev(c, n) <= 1) return true; // 1 Tippfehler erlaubt (ab 5 Zeichen)
+  }
+  return false;
+}
+
+// ---------- Spielablauf ----------
+function startGame(s, challenge){
+  seed = s; isChallenge = !!challenge;
+  order = pickRounds(seed);
+  round = 0; total = 0;
+  $("totalScore").textContent = "0";
+  showPanel("game");
+  startRound();
+}
+
+function showPanel(id){
+  ["start","game","end"].forEach(p => $(p).classList.toggle("show", p === id));
+}
+
+function startRound(){
+  player = PLAYERS[order[round]];
+  revealed = 1; pot = START_POT; solved = false;
+  $("roundLabel").textContent = "Runde " + (round+1) + " / " + ROUNDS + " · " + DIFF_LABELS[playerDiff(player)];
+  $("feedback").textContent = ""; $("feedback").className = "feedback";
+  $("guessInput").value = ""; $("guessInput").disabled = false;
+  $("guessBtn").disabled = false; $("giveUpBtn").disabled = false;
+  $("reveal").classList.remove("show");
+  renderPath(); updatePot();
+  $("guessInput").focus();
+}
+
+// Monogramm aus dem Vereinsnamen ("Bayern München" -> "BAY")
+const CLUB_PREFIXES = new Set(["fc","ac","as","sc","sv","ssc","vfb","vfl","rb","cf","us","krc","osc","ea","sd","sm","afc","cfc","fco","ud","nk","kf","psv","la","dc","1","1899","1860"]);
+function initials(club){
+  const words = club.replace(/[.]/g,"").split(/\s+/).filter(w => w && !CLUB_PREFIXES.has(w.toLowerCase()));
+  const main = words[0] || club;
+  return main.slice(0,3).toUpperCase();
+}
+// Badge-Element: Monogramm, das bei erfolgreichem Logo-Laden durch das Wappen ersetzt wird
+function crestEl(club, url){
+  const span = document.createElement("span");
+  span.className = "crest";
+  span.textContent = club ? initials(club) : "?";
+  if(url){
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.onload = ()=>{ span.textContent = ""; span.appendChild(img); };
+    img.src = url; // bei Ladefehler bleibt einfach das Monogramm stehen
+  }
+  return span;
+}
+function renderPath(){
+  const ul = $("path"); ul.innerHTML = "";
+  player.path.forEach((st,i)=>{
+    const li = document.createElement("li");
+    if(i < revealed || solved){
+      li.className = "station";
+      li.appendChild(crestEl(st[0], typeof st[3] === "string" ? st[3] : null));
+      li.insertAdjacentHTML("beforeend",
+        '<span class="club">' + st[0] + (st[2] ? '<span class="loan">(Leihe)</span>' : '') + '</span><span class="apps">' + st[1] + ' Sp.</span>');
+    } else {
+      li.className = "station hidden-st";
+      li.appendChild(crestEl(null, null));
+      li.insertAdjacentHTML("beforeend", '<span class="club">???</span><span class="apps">– Sp.</span>');
+    }
+    ul.appendChild(li);
+  });
+  $("revealBtn").disabled = solved || revealed >= player.path.length;
+}
+
+function updatePot(){ $("pot").textContent = Math.max(pot, MIN_POT); }
+
+function finishRound(points, msg){
+  solved = true;
+  total += points;
+  $("totalScore").textContent = total;
+  renderPath();
+  $("guessInput").disabled = true;
+  $("guessBtn").disabled = true; $("revealBtn").disabled = true; $("giveUpBtn").disabled = true;
+  $("revealName").textContent = player.name;
+  $("revealPts").textContent = msg;
+  $("reveal").classList.add("show");
+  $("nextBtn").textContent = round === ROUNDS-1 ? "Zum Endstand" : "Nächste Runde";
+  $("nextBtn").focus();
+}
+
+$("guessBtn").addEventListener("click", ()=>{
+  const val = $("guessInput").value;
+  if(!val.trim()) return;
+  if(isCorrect(val)){
+    const pts = Math.max(pot, MIN_POT);
+    $("feedback").textContent = "Richtig!"; $("feedback").className = "feedback good";
+    finishRound(pts, "+" + pts + " Punkte");
+  } else {
+    pot -= WRONG_COST; updatePot();
+    $("feedback").textContent = "Leider falsch – versuch's nochmal."; $("feedback").className = "feedback bad";
+    $("guessInput").select();
+  }
+});
+$("guessInput").addEventListener("keydown", e => { if(e.key === "Enter") $("guessBtn").click(); });
+
+$("revealBtn").addEventListener("click", ()=>{
+  if(revealed < player.path.length){
+    revealed++; pot -= REVEAL_COST;
+    renderPath(); updatePot();
+  }
+});
+
+$("giveUpBtn").addEventListener("click", ()=>{
+  $("feedback").textContent = "";
+  finishRound(0, "0 Punkte – nächstes Mal!");
+});
+
+$("nextBtn").addEventListener("click", ()=>{
+  round++;
+  if(round >= ROUNDS){ showEnd(); } else { startRound(); }
+});
+
+function showEnd(){
+  $("finalScore").textContent = total;
+  const q = total / (ROUNDS * START_POT);
+  $("verdict").textContent =
+    q >= .8 ? "Weltklasse – du gehörst in die Sportredaktion." :
+    q >= .55 ? "Starke Leistung – solides Transfermarkt-Wissen." :
+    q >= .3 ? "Ordentlich – ein paar Stationen fehlen dir noch." :
+    "Da geht mehr – Zeit für ein paar Fussball-Dokus.";
+  if(isChallenge && oppScore !== null){
+    const who = oppName || "Dein Herausforderer";
+    $("vsNote").textContent =
+      total > oppScore ? "🏆 Du: " + total + " – " + who + ": " + oppScore + " → Du gewinnst!" :
+      total < oppScore ? "Du: " + total + " – " + who + ": " + oppScore + " → " + who + " gewinnt." :
+      "Du: " + total + " – " + who + ": " + oppScore + " → Unentschieden!";
+  } else if(isChallenge){
+    $("vsNote").textContent = "Du hast eine Challenge gespielt – schick deinen Link zurück, damit ihr vergleichen könnt!";
+  } else {
+    $("vsNote").textContent = "";
+  }
+  $("challengeLink").textContent = challengeUrl();
+  $("nameInput").oninput = ()=>{ $("challengeLink").textContent = challengeUrl(); };
+  $("copyFeedback").textContent = "";
+  showPanel("end");
+  $("copyBtn").focus();
+}
+
+// ---------- Start & Challenge ----------
+$("startBtn").addEventListener("click", ()=>{
+  startGame(Math.floor(Math.random() * 60466175) + 1, false); // max 36^5-1
+});
+
+$("copyBtn").addEventListener("click", async ()=>{
+  const text = "⚽ Karriereweg-Quiz: Ich habe " + total + " Punkte geholt! Schaffst du mehr? " +
+               "Spiel exakt dieselben Runden: " + challengeUrl();
+  try{
+    await navigator.clipboard.writeText(text);
+    $("copyFeedback").textContent = "Link kopiert – einfach an deine Freunde schicken!";
+    $("copyFeedback").className = "feedback good";
+  }catch(e){
+    // Fallback ohne Clipboard-API
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta);
+    ta.select(); document.execCommand("copy"); ta.remove();
+    $("copyFeedback").textContent = "Link kopiert – einfach an deine Freunde schicken!";
+    $("copyFeedback").className = "feedback good";
+  }
+});
+
+$("restartBtn").addEventListener("click", ()=> showPanel("start"));
+
+// ---------- Eigene Spieler importieren ----------
+// Erwartetes Format: [{ "d": 1-4, "name": "...", "alt": ["..."], "path": [["Verein", Spiele], ["Verein", Spiele, 1]] }, ...]
+// "d" = Schwierigkeit (1 leicht ... 4 sehr schwer), dritter Wert 1 in einer Station = Leihe. "d" und "alt" sind optional.
+function updatePoolInfo(){
+  const c = {1:0,2:0,3:0,4:0};
+  PLAYERS.forEach(p => c[playerDiff(p)]++);
+  $("poolInfo").textContent = "Aktueller Pool: " + PLAYERS.length + " Spieler (" +
+    c[1] + " leicht, " + c[2] + " mittel, " + c[3] + " schwer, " + c[4] + " sehr schwer)";
+}
+$("importFile").addEventListener("change", e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const arr = JSON.parse(reader.result);
+      if(!Array.isArray(arr)) throw new Error("keine Liste");
+      let added = 0, skipped = 0;
+      const existing = new Set(PLAYERS.map(p=>normalize(p.name)));
+      arr.forEach(p=>{
+        const ok = p && typeof p.name === "string" && Array.isArray(p.path) &&
+          p.path.length > 0 && p.path.every(s=>Array.isArray(s) && typeof s[0]==="string" && typeof s[1]==="number");
+        if(!ok || existing.has(normalize(p.name))){ skipped++; return; }
+        PLAYERS.push({
+          tier: p.tier === 1 ? 1 : 0,
+          d: [1,2,3,4].includes(p.d) ? p.d : (p.tier === 1 ? 3 : 2),
+          name: p.name,
+          alt: Array.isArray(p.alt) ? p.alt.filter(a=>typeof a==="string") : [],
+          path: p.path
+        });
+        existing.add(normalize(p.name));
+        added++;
+      });
+      $("importFeedback").textContent = added + " Spieler importiert" + (skipped ? ", " + skipped + " übersprungen (ungültig oder doppelt)." : ".");
+      $("importFeedback").className = "feedback good";
+      updatePoolInfo();
+    }catch(err){
+      $("importFeedback").textContent = "Datei konnte nicht gelesen werden – bitte gültiges JSON im beschriebenen Format verwenden.";
+      $("importFeedback").className = "feedback bad";
+    }
+    e.target.value = "";
+  };
+  reader.readAsText(file);
+});
+updatePoolInfo();
+
+// Externen Spielerpool laden, falls players.json neben der Seite liegt (z. B. aus Transfermarkt-Daten generiert).
+// Wichtig: Ersetzt den eingebauten Pool komplett, damit Challenge-Links für alle identisch bleiben.
+fetch("players.json", {cache:"no-store"})
+  .then(r => r.ok ? r.json() : null)
+  .then(arr => {
+    if(!Array.isArray(arr) || !arr.length) return;
+    const valid = arr.filter(p => p && typeof p.name === "string" && Array.isArray(p.path) &&
+      p.path.length > 0 && p.path.every(s => Array.isArray(s) && typeof s[0] === "string" && typeof s[1] === "number"));
+    if(!valid.length) return;
+    PLAYERS.length = 0;
+    valid.forEach(p => PLAYERS.push({
+      tier: p.tier === 1 ? 1 : 0,
+      d: [1,2,3,4].includes(p.d) ? p.d : 2,
+      name: p.name,
+      alt: Array.isArray(p.alt) ? p.alt.filter(a => typeof a === "string") : [],
+      path: p.path
+    }));
+    updatePoolInfo();
+  })
+  .catch(()=>{}); // keine Datei vorhanden -> eingebauter Pool bleibt aktiv
+
+// URL auswerten: ?admin blendet den Import ein, ?c=KW-XXXXX (oder #KW-XXXXX) startet eine Challenge
+const urlParams = new URLSearchParams(location.search);
+if(urlParams.has("admin") || location.hash.replace("#","").toLowerCase() === "admin"){
+  $("adminSection").style.display = "";
+}
+const codeParam = urlParams.get("c") || (location.hash.length > 1 ? location.hash.slice(1) : "");
+if(codeParam && codeParam.toLowerCase() !== "admin"){
+  const parsed = parseCode(codeParam);
+  if(parsed !== null){
+    const s = parseInt(urlParams.get("s"), 10);
+    oppScore = isNaN(s) ? null : s;
+    oppName = (urlParams.get("n") || "").slice(0,20);
+    startGame(parsed, true);
+  }
+}
+</script>
+</body>
+</html>
