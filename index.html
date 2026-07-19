@@ -193,7 +193,8 @@
     <div class="vs" id="vsNote"></div>
 
     <div class="challenge-box">
-      <p>Fordere deine Freunde heraus – wer diesen Link öffnet, spielt exakt dieselben Runden:</p>
+      <p>Fordere deine Freunde heraus – wer diesen Link öffnet, spielt exakt dieselben Runden und sieht danach den direkten Vergleich mit dir:</p>
+      <input type="text" id="nameInput" placeholder="Dein Name (optional, erscheint beim Gegner)" maxlength="20" autocomplete="off" aria-label="Dein Name für den Vergleich" style="margin-top:6px">
       <div class="code" id="challengeLink" style="font-size:14px;letter-spacing:0;word-break:break-all">…</div>
       <div class="btn-row">
         <button class="primary" id="copyBtn">Challenge-Link kopieren</button>
@@ -324,7 +325,7 @@ const PLAYERS = [
 const ROUNDS = 8, START_POT = 100, REVEAL_COST = 15, WRONG_COST = 10, MIN_POT = 10;
 const DIFF_LABELS = {1:"Leicht", 2:"Mittel", 3:"Schwer", 4:"Sehr schwer"};
 
-let seed = 0, isChallenge = false;
+let seed = 0, isChallenge = false, oppScore = null, oppName = "";
 let order = [], round = 0, total = 0, pot = 0, revealed = 0, solved = false, player = null;
 
 const $ = id => document.getElementById(id);
@@ -370,7 +371,8 @@ function makeCode(s){
 }
 function challengeUrl(){
   const base = location.href.split(/[?#]/)[0];
-  return base + "?c=" + makeCode(seed);
+  const name = ($("nameInput") ? $("nameInput").value.trim() : "").slice(0,20);
+  return base + "?c=" + makeCode(seed) + "&s=" + total + (name ? "&n=" + encodeURIComponent(name) : "");
 }
 function parseCode(str){
   let clean = str.toUpperCase().replace(/\s+/g,"").replace(/^KW-?/,"");
@@ -495,10 +497,19 @@ function showEnd(){
     q >= .55 ? "Starke Leistung – solides Transfermarkt-Wissen." :
     q >= .3 ? "Ordentlich – ein paar Stationen fehlen dir noch." :
     "Da geht mehr – Zeit für ein paar Fussball-Dokus.";
-  $("vsNote").textContent = isChallenge
-    ? "Du hast eine Challenge gespielt – vergleicht jetzt eure Punkte!"
-    : "";
+  if(isChallenge && oppScore !== null){
+    const who = oppName || "Dein Herausforderer";
+    $("vsNote").textContent =
+      total > oppScore ? "🏆 Du: " + total + " – " + who + ": " + oppScore + " → Du gewinnst!" :
+      total < oppScore ? "Du: " + total + " – " + who + ": " + oppScore + " → " + who + " gewinnt." :
+      "Du: " + total + " – " + who + ": " + oppScore + " → Unentschieden!";
+  } else if(isChallenge){
+    $("vsNote").textContent = "Du hast eine Challenge gespielt – schick deinen Link zurück, damit ihr vergleichen könnt!";
+  } else {
+    $("vsNote").textContent = "";
+  }
   $("challengeLink").textContent = challengeUrl();
+  $("nameInput").oninput = ()=>{ $("challengeLink").textContent = challengeUrl(); };
   $("copyFeedback").textContent = "";
   showPanel("end");
   $("copyBtn").focus();
@@ -582,7 +593,12 @@ if(urlParams.has("admin") || location.hash.replace("#","").toLowerCase() === "ad
 const codeParam = urlParams.get("c") || (location.hash.length > 1 ? location.hash.slice(1) : "");
 if(codeParam && codeParam.toLowerCase() !== "admin"){
   const parsed = parseCode(codeParam);
-  if(parsed !== null) startGame(parsed, true);
+  if(parsed !== null){
+    const s = parseInt(urlParams.get("s"), 10);
+    oppScore = isNaN(s) ? null : s;
+    oppName = (urlParams.get("n") || "").slice(0,20);
+    startGame(parsed, true);
+  }
 }
 </script>
 </body>
