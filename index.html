@@ -390,13 +390,36 @@ function normalize(s){
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
 }
+// Levenshtein-Distanz, gedeckelt bei 2 (reicht für Tippfehler-Toleranz von 1)
+function lev(a, b){
+  if(Math.abs(a.length - b.length) > 1) return 2;
+  let prev = Array.from({length: b.length + 1}, (_, i) => i);
+  for(let i = 1; i <= a.length; i++){
+    const cur = [i];
+    for(let j = 1; j <= b.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    }
+    prev = cur;
+    if(Math.min(...cur) > 1) return 2;
+  }
+  return prev[b.length];
+}
 function isCorrect(input){
   const n = normalize(input);
   if(!n) return false;
   const full = normalize(player.name);
-  const last = full.split(" ").pop();
-  if(n === full || n === last) return true;
-  return player.alt.some(a => normalize(a) === n);
+  const tokens = full.split(" ");
+  // Gültige Antworten: voller Name, alle Nachnamen-Suffixe ("santa cruz", "cruz") und Alternativen
+  const cands = new Set([full]);
+  for(let i = 1; i < tokens.length; i++) cands.add(tokens.slice(i).join(" "));
+  player.alt.forEach(a => cands.add(normalize(a)));
+  // Führende Initiale tolerieren ("r santa cruz" -> "santa cruz")
+  const nNoInit = n.replace(/^[a-z] /, "");
+  for(const c of cands){
+    if(c === n || c === nNoInit) return true;
+    if(c.length >= 5 && lev(c, n) <= 1) return true; // 1 Tippfehler erlaubt (ab 5 Zeichen)
+  }
+  return false;
 }
 
 // ---------- Spielablauf ----------
@@ -584,6 +607,27 @@ $("importFile").addEventListener("change", e=>{
   reader.readAsText(file);
 });
 updatePoolInfo();
+
+// Externen Spielerpool laden, falls players.json neben der Seite liegt (z. B. aus Transfermarkt-Daten generiert).
+// Wichtig: Ersetzt den eingebauten Pool komplett, damit Challenge-Links für alle identisch bleiben.
+fetch("players.json", {cache:"no-store"})
+  .then(r => r.ok ? r.json() : null)
+  .then(arr => {
+    if(!Array.isArray(arr) || !arr.length) return;
+    const valid = arr.filter(p => p && typeof p.name === "string" && Array.isArray(p.path) &&
+      p.path.length > 0 && p.path.every(s => Array.isArray(s) && typeof s[0] === "string" && typeof s[1] === "number"));
+    if(!valid.length) return;
+    PLAYERS.length = 0;
+    valid.forEach(p => PLAYERS.push({
+      tier: p.tier === 1 ? 1 : 0,
+      d: [1,2,3,4].includes(p.d) ? p.d : 2,
+      name: p.name,
+      alt: Array.isArray(p.alt) ? p.alt.filter(a => typeof a === "string") : [],
+      path: p.path
+    }));
+    updatePoolInfo();
+  })
+  .catch(()=>{}); // keine Datei vorhanden -> eingebauter Pool bleibt aktiv
 
 // URL auswerten: ?admin blendet den Import ein, ?c=KW-XXXXX (oder #KW-XXXXX) startet eine Challenge
 const urlParams = new URLSearchParams(location.search);
